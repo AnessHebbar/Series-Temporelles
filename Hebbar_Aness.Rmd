@@ -1,0 +1,342 @@
+---
+title: "Séries temporelles 1er Projet"
+author: "HEBBAR Aness"
+date: "2025-02-17"
+output:
+  pdf_document: default
+---
+
+
+
+```{r,echo=FALSE,message=FALSE}
+library(xts)
+library(dygraphs)
+library(zoo)
+library(imputeTS)
+library(ggplot2)
+library(VIM)
+library(corrplot)
+library(missMDA)
+```
+
+
+
+
+```{r}
+library(readr)
+projet <- read.table("dataprojet1.txt", header = TRUE)
+projet$Date <- as.Date(projet$Date, format="%Y-%m-%d") 
+str(projet$Date)
+```
+# Question 2 :
+
+
+pour visualiser le flux de CO2 et de CH4 avec la fonction dygraph, on doit d'abord convertir les deux colonnes **( FCO2 et FCH4 )** en series temporelles avec la fonction **ts** et aprés on crée deux tableaux (**t1**:contient une colonne de date et une autre de FCO2 , **t2**:contient une colonne de date et une autre de **FCH4**)
+
+
+
+```{r}
+fco2 <- ts(projet$FCO2, start = c(2017, 1), frequency = 365) 
+fch4 <- ts(projet$FCH4, start = c(2017, 1), frequency = 365)
+t1 <- data.frame(Date = projet$Date, FCO2 = projet$FCO2)
+t2 <- data.frame(Date = projet$Date, FCH4 = projet$FCH4)
+```
+
+
+Maintenant, on visualise la première table **(t1)** :
+
+
+```{r}
+dygraph(t1) %>%
+  dySeries("FCO2",label = "Flux CO2") %>%
+  dyAxis("y",label = "Flux de CO2") %>%
+  dyLegend(show = "always", hideOnMouseOut = FALSE) %>%
+  dyOptions(fillGraph = TRUE, drawGrid = TRUE)
+
+```
+
+
+Ce graphe nous montre l'évolution du **flux de CO2** entre le **19 janvier 2017** et le **30 décembre 2021**.
+
+
+On observe une forte variation des valeurs du flux (valeurs négatives signifiant une absorption de **CO2** et valeurs positives indiquant une émission de **CO2**) selon la période.
+
+On peut remarquer que dans ce graphe il y a 3 idées importantes à citer qui sont :  
+
+>- **la saisonnalité :**  
+
+En avril et mai de chaque année, les valeurs du flux oscillent autour de 0, tantôt légèrement positives, tantôt légèrement négatives.
+En été (juin, juillet, août), les valeurs du flux deviennent fortement négatives (augmentation de l'absorption du **CO2**) et même les valeurs positives atteignent des niveaux plus élevés.  
+
+>- **des fluctuations spécifiques :**  
+
+Entre septembre et décembre 2020, on observe des fluctuations importantes du flux.  
+
+>- **les données manquantes :**  
+
+Il y a plusieurs périodes avec des valeurs manquantes, notamment en janvier, février et décembre 2018.
+Une absence presque totale de données est visible entre décembre 2020 et juin 2021.
+
+
+
+```{r}
+dygraph(t2) %>%
+  dySeries("FCH4", label = "Flux CH4") %>%
+  dyAxis("y", label = "Flux de CH4") %>%
+  dyLegend(show = "always", hideOnMouseOut = FALSE) %>%
+  dyOptions(fillGraph = TRUE, drawGrid = TRUE)
+```
+
+
+Ce graphe nous montre l'évolution du flux de CH4 entre le **19 janvier 2017** et le **30 décembre 2021**.  
+
+
+La première remarque que l'on peut faire concerne la présence importante de valeurs manquantes, ce qui peut empêcher de déterminer s'il existe une tendance saisonnière ou non. Par exemple, aucune donnée n'est disponible entre le **10 décembre 2020** et le **30 juin 2021**. D'autres périodes présentent également des lacunes, notamment entre mai et novembre 2017, août et septembre 2018, **etc.**, ce qui complique l'analyse.   
+
+
+On observe également des périodes où le flux de CH4 devient fortement négatif, notamment en été 2018, été 2019 et été 2020, ce qui indique une forte absorption de CH4.  
+
+
+personnellement, j'ai l'impression qu'il y a une tendance saisonnière en été, mais en raison du grand nombre de données manquantes (notamment en juillet 2017), je préfère ne pas tirer de conclusion définitive.
+
+
+# Question 3 :  
+
+
+notre jeu de données contient plusieurs valeurs manquantes **(NA)** .
+
+
+```{r}
+print("le nombre total des valeurs manquantes est :")
+sum(is.na(projet))
+print("le nombre de valeurs manquantes par variables :")
+colSums(is.na(projet))
+```
+
+En utilisant la fonction **agrr**, on obtient les deux graphes suivants:  
+
+
+
+```{r}
+aggr(projet, prop = FALSE, ylab = c("histogramme des données manquantes","patterns des données manquantes"))
+```
+
+
+
+le premier graphe est un histogramme qui nous montre le nombre de valeurs manquantes par variable, l'axe horizontale contient les variables (les colonnes) et l'axe vertical represente le nombre des valeurs manquantes.  
+
+
+le deuxième graphe représente la structure des valeurs manquantes où chaque ligne est une observation.  
+les cellules rouges indiquent les valeurs manquantes et les cellules bleues indiquent les valeurs présentes.  
+
+
+à droite du **patterns des données manquantes**, la barre verticale indique la fréquence des differents patterns de valeurs manquantes.  
+
+
+
+```{r}
+Fco2Fch4 <- projet[, c("FCO2","FCH4")]
+aggr(Fco2Fch4, ylab = c("histogramme des données manquantes","patterns des données manquantes"), numbers = TRUE)
+```
+
+
+
+En regardent ces deux graphes, on peut avoir une idée concernant les proportions, par exemple on voit que pour **CO2** la proportions de valeurs manquantes est autour de **35%** et plus de **50%** pour **CH4**.  
+
+
+```{r}
+nmbr_NA <- colSums(is.na(Fco2Fch4))
+pourcentage_NA <- (nmbr_NA / nrow(Fco2Fch4))*100
+nmbr_NA 
+pourcentage_NA
+```
+En calculant les proportions, on trouve que pour *CO2* le pourcentage est de **34.36635%** et pour *CH4* le pourcentage est **50.30437%**
+
+
+# Question 4 :  
+
+
+Pour visualiser les données manquantes des flux de CO2 et CH4 en passant par le package imputeTS, on va utiliser les deux fonctions **ggplot_na_distribution** et **ggplot_na_distribution2**.  
+
+
+
+```{r}
+ggplot_na_distribution(fco2)
+ggplot_na_distribution2(fco2)
+ggplot_na_distribution(fch4)
+ggplot_na_distribution2(fch4)
+```
+
+
+**ggplot_na_distribution** nous permet d'avoir la distribution des données manquantes pour les variables **FCO2** et **FCH4** au fil du temps.  
+
+**ggplot_na_distribution2** nous permet d'avoir le pourcentage des données manquantes pour les variables **FCO2** et **FCH4** par intervalle (inervalle des observations).  
+
+
+Maintenant on va tester les differentes méthodes d'imputations comme la moyenne, la moyenne mobile, interpolation linéaire,etc.  
+
+
+On commence par le flux de CO2 :  
+
+
+```{r}
+moy1 <- na_mean(fco2) #moyenne
+moy_mob1 <- na_ma(fco2) # moyenne mobile
+inter1 <- na_interpolation(fco2) # interpolation linéaire
+sead1 <- na_seadec(projet$FCO2, find_frequency = TRUE) # imputation par décomposition saisonière
+sead3 <- na_seadec(fco2)
+```
+
+
+## Moyenne :  
+
+
+
+```{r}
+ggplot_na_imputations(x_with_na = fco2, x_with_imputations = moy1)
+```
+
+
+## Moyenne mobile : 
+
+
+```{r}
+ggplot_na_imputations(x_with_na = fco2, x_with_imputations = moy_mob1)
+```
+
+
+## Interpolation linéaire :  
+
+
+
+```{r}
+ggplot_na_imputations(x_with_na = fco2, x_with_imputations = inter1)
+```
+
+
+## Imputation par décomposition saisonnière : 
+
+```{r}
+ggplot_na_imputations(x_with_na = projet$FCO2, x_with_imputations = sead1)
+```
+
+on remarque que l'imputation n'est pas efficace (performante), donc on va travailler avec **fco2** qui est une série de classe **TS**.
+
+Voici le graphe amellioré :  
+
+
+## Imputation par décomposition saisonnière
+
+```{r}
+ggplot_na_imputations(x_with_na = fco2, x_with_imputations = sead3)
+```
+
+
+
+
+
+Maintenant on passe au **flux de CH4** :  
+
+
+
+```{r}
+moy <- na_mean(fch4)
+moy_mob <- na_ma(fch4)
+inter <- na_interpolation(fch4)
+sead <- na_seadec(fch4)
+```
+
+
+## Moyenne :  
+
+
+```{r}
+
+ggplot_na_imputations(x_with_na = fch4, x_with_imputations = moy)
+
+```
+
+## Moyenne mobile :  
+
+
+
+```{r}
+ggplot_na_imputations(x_with_na = fch4, x_with_imputations = moy_mob)
+```
+
+
+## Interpolation linéaire :  
+
+
+```{r}
+ggplot_na_imputations(x_with_na = fch4, x_with_imputations = inter)
+```
+
+
+## Imputation par décomposition saisonnière :  
+
+
+
+```{r}
+ggplot_na_imputations(x_with_na = fch4, x_with_imputations = sead)
+```
+
+
+# Question 5 :  
+
+On va utiliser la fonction corrplot pour visualiser les corrélations des variables :  
+
+```{r}
+corr <- cor(projet[,-1], use = "complete.obs")
+corrplot(corr)
+```
+
+Chaque ligne et chaque colonne représente une variable et dans la diagonale y a que des 1 .  
+
+
+On va garder les variables qui sont sufisamment corrélées avec FCO2 et FCH4 en définissant un seuil de 0.5 et on affiche toutes les variables qui dépasse ce seuil.  
+
+
+
+
+```{r}
+seuil = 0.5
+
+cor_fco2_1 <- corr["FCO2", ]
+corr_fco2 <- cor_fco2_1[abs(cor_fco2_1) > seuil & names(cor_fco2_1) != "FCO2"]
+
+
+cor_fch4_1 <- corr["FCH4", ]
+corr_fch4 <- cor_fch4_1[abs(cor_fch4_1) > seuil & names(cor_fch4_1) != "FCH4"]
+
+
+print("les variables qui sont sufisamment corrélées avec FCO2 :")
+corr_fco2
+
+print("les variables qui sont sufisamment corrélées avec FCh4 :")
+corr_fch4
+```
+
+# Question 6 :  
+
+Maintenant on va essayer d'utiliser le package missMDA qui utilise les corrélations avec les autres variables pour imputer les données manquantes plus efficacement.  
+
+
+```{r}
+projet3 <- projet[sapply(projet, is.numeric)]
+imput <- imputePCA(projet3)$completeObs
+ggplot_na_imputations(projet3$FCO2,imput[,which(colnames(imput) == "FCO2")])
+```
+
+```{r}
+ggplot_na_imputations(projet3$FCH4,imput[,which(colnames(imput) == "FCH4")])
+```
+
+
+
+en comparant cette méthode avec celles de la question 4, on peut aisément constater que cette imputation a beaucoup plus de sens que les méthodes précédentes. Elle est efficace car elle utilise l'ACP pour prédire les valeurs manquantes en tenant compte des relations entre les variables, ce qui évite de biaiser l'analyse.
+
+il existe également la méthode d'imputation par décomposition saisonnière, qui semble logique, particulièrement lorsqu'on travaille sur des séries temporelles.
+
+les autres méthodes peuvent être pertinentes dans certains contextes, mais elles ne sont pas adaptées à ce jeu de données spécifique, en raison de la nature et de la structure des données.
+
